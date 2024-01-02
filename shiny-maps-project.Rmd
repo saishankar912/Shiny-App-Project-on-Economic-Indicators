@@ -1,0 +1,126 @@
+---
+title: "shiny"
+output: html_notebook
+date: "2023-12-05"
+runtime: shiny
+---
+
+
+```{r}
+#attractive code
+
+library(shiny)
+library(highcharter)
+library(dplyr)
+library(countrycode)
+library(ggplot2)
+library(shinythemes)
+data1 <- read.csv("combined_data.csv")
+
+```
+
+```{r}
+str(data1)
+
+```
+
+```{r}
+
+summary(data1)
+```
+
+
+```{r}
+ui <- fluidPage(
+  theme = shinytheme("cerulean"),
+  tabsetPanel(
+    tabPanel(
+      "Plot",
+      titlePanel("Economic Indicator Comparison"),
+      sidebarLayout(
+        sidebarPanel(
+          selectizeInput("countries", "Select Countries:", choices = unique(data1$Country), multiple = TRUE),
+          selectInput("variable", "Select Variable:", choices = c("InflationRate", "InterestRate", "UnemploymentRate")),
+          selectInput("from_year", "From Year:", choices = unique(data1$Year)),
+          selectInput("to_year", "To Year:", choices = unique(data1$Year)),
+        ),
+        mainPanel(
+          plotOutput("plot1")
+        )
+      )
+    ),
+    tabPanel(
+      "Map",
+      titlePanel("Economic Indicators by Country"),
+      mainPanel(
+        selectInput("year", "Select Year", choices = unique(data1$Year), selected = max(data1$Year)),
+        selectInput("indicator", "Select Indicator",
+                    choices = c("Inflation Rate", "Unemployment Rate", "Interest Rate"),
+                    selected = "Inflation Rate"),
+        highchartOutput("economic_map")
+      )
+    )
+  )
+)
+server <- function(input, output) {
+
+  # For PLOT
+  selected_data1 <- reactive({
+    filter(data1, Country %in% input$countries, Year >= input$from_year, Year <= input$to_year)
+  })
+
+  output$plot1 <- renderPlot({
+    ggplot(selected_data1(), aes(x = Year, y = !!sym(input$variable), color = Country)) +
+      geom_line() +
+      labs(title = paste(input$variable, "Comparison"),
+           x = "Year",
+           y = input$variable,
+           color = "Country") +
+      theme_minimal()  # Choose a ggplot theme for the plot
+  })
+
+  # For Map
+  output$economic_map <- renderHighchart({
+    maps <- data1 %>%
+      filter(Year == input$year) %>%
+      group_by(Country) %>%
+      summarize(
+        InflationRate = mean(InflationRate, na.rm = TRUE),
+        UnemploymentRate = mean(UnemploymentRate, na.rm = TRUE),
+        InterestRate = mean(InterestRate, na.rm = TRUE)
+      ) %>%
+      mutate(
+        iso3 = countrycode(Country, origin = 'country.name', destination = 'iso3c'),
+        Value = switch(input$indicator,
+                       "Inflation Rate" = InflationRate,
+                       "Unemployment Rate" = UnemploymentRate,
+                       "Interest Rate" = InterestRate)
+      )
+
+    max_value <- switch(input$indicator,
+                        "Inflation Rate" = max(maps$InflationRate, na.rm = TRUE),
+                        "Unemployment Rate" = max(maps$UnemploymentRate, na.rm = TRUE),
+                        "Interest Rate" = max(maps$InterestRate, na.rm = TRUE))
+
+    highchart() %>%
+      hc_add_series_map(worldgeojson, maps, value = 'Value', joinBy = 'iso3') %>%
+      hc_title(text = paste(input$indicator, 'by Country in', input$year)) %>%
+      hc_colorAxis(
+        min = min(maps$Value, na.rm = TRUE),
+        max = max_value * 0.1,
+        minColor = "#000000",
+        maxColor = "#ff9900",
+        stops = color_stops(10, c("#000000", "#ff9900"))
+      ) %>%
+      hc_tooltip(useHTML = TRUE, headerFormat = "", pointFormat = "{point.name}: {point.Value}")
+  })
+}
+
+# Run the Shiny app
+shinyApp(ui, server)
+
+```
+
+
+
+
